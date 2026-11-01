@@ -6,11 +6,18 @@ on:
         description: Package version
         required: true
         default: '0.1.0'
+      runner:
+        description: macOS build runner
+        type: choice
+        options:
+          - macos-15
+          - macos-15-intel
+        default: macos-15
 permissions:
   contents: read
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
