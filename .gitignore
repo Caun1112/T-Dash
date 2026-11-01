@@ -31,3 +31,8 @@ scratch/
 _patch_stages*.py
 # 图标等历史备份
 backup/
+
+# iOS builds and user-supplied reference packages
+*.deb
+ios/.build/
+ios/packages/

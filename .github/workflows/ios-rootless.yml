@@ -1,0 +1,29 @@
+name: Build iOS rootless DEB
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version
+        required: true
+        default: '0.1.0'
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install package tools
+        run: brew install ldid dpkg
+      - name: Test protocol and trip logic
+        run: bash ios/scripts/test.sh
+      - name: Build and verify rootless package
+        env:
+          TDASH_VERSION: ${{ inputs.version }}
+        run: bash ios/scripts/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TDash-rootless-${{ inputs.version }}
+          path: ios/packages/*
+          if-no-files-found: error

@@ -1,0 +1,10 @@
+Package: com.caun.tdash.amap
+Name: T-Dash 高德悬浮仪表
+Version: 0.1.0
+Architecture: iphoneos-arm64
+Description: Transparent Tesla BLE dashboard inside AMap, with landscape and portrait layouts.
+Maintainer: Caun1112
+Author: T-Dash contributors
+Section: Tweaks
+Depends: firmware (>= 15.0), mobilesubstrate
+Homepage: https://github.com/Caun1112/T-Dash
