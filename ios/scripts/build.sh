@@ -33,5 +33,5 @@ chmod 644 "$STAGE/DEBIAN/control" "$LIB/TDash.plist" "$DOC/"*
 DEB="$PACKAGE/com.caun.tdash.amap_${VERSION}_iphoneos-arm64.deb"
 COPYFILE_DISABLE=1 dpkg-deb -Zxz --root-owner-group --build "$STAGE" "$DEB"
 python3 "$ROOT/ios/scripts/verify-package.py" "$DEB"
-shasum -a 256 "$DEB" > "$DEB.sha256"
+(cd "$PACKAGE" && shasum -a 256 "$(basename "$DEB")") > "$DEB.sha256"
 echo "$DEB"

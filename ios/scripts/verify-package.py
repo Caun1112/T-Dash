@@ -27,6 +27,10 @@ with tempfile.TemporaryDirectory() as tmp:
     assert '/Users/' not in deps and '/opt/' not in deps
     assert '@rpath/TDash.dylib' in deps
     assert '_TDashStart' in run('nm', '-gU', str(binary))
-    assert '__mod_init_func' in run('otool', '-l', str(binary))
+    # New Apple linkers emit __TEXT,__init_offsets rather than __mod_init_func.
+    # Ask dyld's own inspection tool to resolve actual initializer targets.
+    initializers = run('xcrun', 'dyld_info', '-inits', str(binary))
+    assert initializers.count('_TDashLoad') == 2, initializers
+    subprocess.run(['xcrun', 'dyld_info', '-validate_only', str(binary)], check=True)
     subprocess.run(['codesign', '--verify', '--verbose', str(binary)], check=True)
 print('PASS: rootless layout, AMap-only filter, arm64/arm64e, initializer, load paths and signature')

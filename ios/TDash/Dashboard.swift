@@ -356,6 +356,7 @@ private final class TDOverlayCoordinator: NSObject {
         guard Bundle.main.bundleIdentifier == "com.autonavi.amap", observers.isEmpty else { return }
         let center = NotificationCenter.default
         for name in [UIApplication.didBecomeActiveNotification, UIApplication.willResignActiveNotification,
+                     UIApplication.didEnterBackgroundNotification, UIScene.didEnterBackgroundNotification,
                      UIScene.didActivateNotification, UIScene.willDeactivateNotification, UIScene.didDisconnectNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.sync() })
         }
