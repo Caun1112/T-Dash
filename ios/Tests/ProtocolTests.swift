@@ -109,6 +109,16 @@ enum ProtocolTests {
         reject { _ = try session.decryptResponse(telemetryResponse, request: command) }
         let sparse = try TDProto.parseTelemetry(TDProto.bytes(2, TDProto.bytes(3, TDProto.uint(114, 0))))
         assert(sparse.batteryPercent == 0 && sparse.speedKph == nil && sparse.gear == nil)
+        func rangeSample(_ miles: Float) throws -> TDTelemetry {
+            try TDProto.parseTelemetry(TDProto.bytes(2, TDProto.bytes(3, TDProto.fixed32(111, miles.bitPattern))))
+        }
+        let ranged = try rangeSample(264.7)
+        assert(abs(ranged.rangeKm! - Double(Float(264.7)) * 1.609344) < 0.0001)
+        check(try rangeSample(0).rangeKm == 0)
+        for invalid: Float in [-1, .nan, .infinity, 2000] {
+            check(try rangeSample(invalid).rangeKm == nil)
+        }
+        assert(sparse.rangeKm == nil) // missing range must not become a false zero
         print("PASS: official ECDH/HMAC/TLV vectors, protobuf bounds/unknowns, pairing envelope, authenticated handshake, encrypted telemetry roundtrip, UUID match, tamper/replay rejection, sparse telemetry")
     }
 }

@@ -16,6 +16,7 @@ final class TDTeslaClient: NSObject {
     private(set) var isPairing = false
     private(set) var speedUpdatedAt: Date?
     private(set) var batteryUpdatedAt: Date?
+    private(set) var rangeUpdatedAt: Date?
     private(set) var gearUpdatedAt: Date?
     private(set) var powerUpdatedAt: Date?
     private(set) var odometerUpdatedAt: Date?
@@ -68,7 +69,7 @@ final class TDTeslaClient: NSObject {
             if self.previewFixtureLoaded {
                 let now = Date()
                 self.speedUpdatedAt = now; self.gearUpdatedAt = now
-                self.batteryUpdatedAt = now; self.powerUpdatedAt = now
+                self.rangeUpdatedAt = now; self.batteryUpdatedAt = now; self.powerUpdatedAt = now
                 self.odometerUpdatedAt = now; self.telemetry.receivedAt = now
             }
 #endif
@@ -159,13 +160,14 @@ final class TDTeslaClient: NSObject {
         isConnected = true
         isBluetoothConnected = true
         let now = Date()
-        telemetry.speedKph = 86
+        telemetry.speedKph = 60
+        telemetry.rangeKm = 426
         telemetry.batteryPercent = 72
         telemetry.gear = "D"
         telemetry.powerKW = 18
         telemetry.odometerKm = 12486.2
         telemetry.receivedAt = now
-        speedUpdatedAt = now; batteryUpdatedAt = now; gearUpdatedAt = now
+        rangeUpdatedAt = now; speedUpdatedAt = now; batteryUpdatedAt = now; gearUpdatedAt = now
         powerUpdatedAt = now; odometerUpdatedAt = now
         update("蓝牙实时 · 预览数据")
     }
@@ -215,6 +217,7 @@ final class TDTeslaClient: NSObject {
         telemetry = TDTelemetry()
         speedUpdatedAt = nil
         batteryUpdatedAt = nil
+        rangeUpdatedAt = nil
         gearUpdatedAt = nil
         powerUpdatedAt = nil
         odometerUpdatedAt = nil
@@ -414,6 +417,9 @@ final class TDTeslaClient: NSObject {
         let now = Date()
         if let value = new.speedKph {
             telemetry.speedKph = value; speedUpdatedAt = now
+        }
+        if let value = new.rangeKm {
+            telemetry.rangeKm = value; rangeUpdatedAt = now
         }
         if let value = new.batteryPercent {
             telemetry.batteryPercent = value; batteryUpdatedAt = now

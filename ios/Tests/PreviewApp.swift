@@ -64,10 +64,16 @@ final class PreviewRenderer {
         render("landscape", CGSize(width: 844, height: 390), dashboard)
         render("portrait", CGSize(width: 390, height: 844), dashboard)
         render("landscape-small", CGSize(width: 667, height: 375), dashboard)
-        prefs.set(true, forKey: "collapsed")
-        let compact = TDDashboardController(client: client); _ = compact.view
-        render("compact", CGSize(width: 844, height: 390), compact)
-        try! Data("PASS: native UIKit landscape, portrait, repeated rotation, compact and small-screen bounds\n".utf8)
+        render("portrait-small", CGSize(width: 320, height: 568), dashboard)
+        // Labels and dividers only: no visible button or secondary dashboard content.
+        precondition(dashboard.panel.subviews.count == 5)
+        precondition(!dashboard.panel.subviews.contains { $0 is UIControl })
+        precondition(dashboard.panel.gestureRecognizers?.contains { $0 is UILongPressGestureRecognizer } == true)
+        client.disconnect()
+        render("disconnected", CGSize(width: 844, height: 390), dashboard)
+        let labels = dashboard.panel.subviews.compactMap { $0 as? UILabel }
+        precondition(labels.allSatisfy { ($0.attributedText?.string ?? $0.text ?? "").contains("—") })
+        try! Data("PASS: native UIKit landscape, portrait, repeated rotation, small-screen bounds, long-press access and disconnected readings\n".utf8)
             .write(to: folder.appendingPathComponent("preview-complete.txt"))
     }
 }

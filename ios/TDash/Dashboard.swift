@@ -5,19 +5,6 @@ import UIKit
 private let tdMint = UIColor(red: 0.40, green: 0.96, blue: 0.81, alpha: 1)
 private let tdPrefs = UserDefaults(suiteName: "com.caun.tdash.amap")!
 
-private func tdLabel(_ size: CGFloat, weight: UIFont.Weight = .regular, color: UIColor = .white) -> UILabel {
-    let label = UILabel()
-    label.font = .monospacedDigitSystemFont(ofSize: size, weight: weight)
-    label.textColor = color
-    label.adjustsFontSizeToFitWidth = true
-    label.minimumScaleFactor = 0.65
-    label.layer.shadowColor = UIColor.black.cgColor
-    label.layer.shadowOpacity = 0.75
-    label.layer.shadowRadius = 2
-    label.layer.shadowOffset = CGSize(width: 0, height: 1)
-    return label
-}
-
 final class TDOverlayWindow: UIWindow {
     weak var dashboard: TDDashboardController?
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -32,25 +19,15 @@ final class TDOverlayWindow: UIWindow {
 final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate {
     let client: TDTeslaClient
     let panel = UIView()
-    private let speed = tdLabel(52, weight: .semibold)
-    private let unit = tdLabel(10, weight: .medium, color: UIColor.white.withAlphaComponent(0.7))
-    private let brand = tdLabel(10, weight: .bold, color: tdMint)
-    private let gear = tdLabel(23, weight: .semibold, color: tdMint)
-    private let battery = tdLabel(19, weight: .medium)
-    private let detail = tdLabel(10, color: UIColor.white.withAlphaComponent(0.85))
-    private let state = tdLabel(10, color: UIColor.white.withAlphaComponent(0.75))
-    private let batteryIcon = UIImageView(image: UIImage(systemName: "battery.100"))
-    private let separator = UIView()
-    private let settingsButton = UIButton(type: .system)
-    private let meterTrack = UIView()
-    private let meterFill = UIView()
+    private let speed = UILabel()
+    private let gear = UILabel()
+    private let range = UILabel()
+    private let leftDivider = UIView()
+    private let rightDivider = UIView()
     private var timer: Timer?
     private var orientationKey = ""
     private var dragOrigin = CGPoint.zero
-    private var trip = TDTripMeter()
-    private var collapsed = tdPrefs.bool(forKey: "collapsed")
     private var landscape: Bool { view.bounds.width > view.bounds.height }
-    private var lastTelemetryDate: Date?
     weak var hostKeyWindow: UIWindow?
 
     init(client: TDTeslaClient) { self.client = client; super.init(nibName: nil, bundle: nil) }
@@ -61,102 +38,74 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
-        panel.layer.cornerRadius = 20
         panel.layer.borderWidth = 0.5
-        panel.layer.borderColor = UIColor.white.withAlphaComponent(0.22).cgColor
+        panel.layer.borderColor = UIColor.white.withAlphaComponent(0.65).cgColor
         panel.layer.shadowColor = UIColor.black.cgColor
         panel.layer.shadowRadius = 8
-        panel.layer.shadowOpacity = 0.2
+        panel.layer.shadowOpacity = 0.16
         panel.layer.shadowOffset = CGSize(width: 0, height: 3)
         view.addSubview(panel)
-        [speed, unit, brand, gear, battery, detail, state, batteryIcon, separator, settingsButton, meterTrack].forEach(panel.addSubview)
-        meterTrack.addSubview(meterFill)
-        unit.text = "km/h"; brand.text = "T–DASH  /  BLE"
-        batteryIcon.tintColor = tdMint; batteryIcon.contentMode = .scaleAspectFit
-        separator.backgroundColor = UIColor.white.withAlphaComponent(0.16)
-        meterTrack.backgroundColor = UIColor.white.withAlphaComponent(0.1)
-        meterTrack.layer.cornerRadius = 1.5
-        meterFill.backgroundColor = tdMint; meterFill.layer.cornerRadius = 1.5
-        settingsButton.setImage(UIImage(systemName: "slider.horizontal.3"), for: .normal)
-        settingsButton.tintColor = UIColor.white.withAlphaComponent(0.8)
-        settingsButton.accessibilityLabel = "T-Dash 设置与车辆连接"
-        settingsButton.addTarget(self, action: #selector(openSettings), for: .touchUpInside)
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(drag(_:)))
-        pan.delegate = self; panel.addGestureRecognizer(pan)
-        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(toggleCollapsed))
-        doubleTap.numberOfTapsRequired = 2; doubleTap.delegate = self; panel.addGestureRecognizer(doubleTap)
-        let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
-        hold.minimumPressDuration = 0.65; hold.delegate = self; panel.addGestureRecognizer(hold)
+        [speed, gear, range, leftDivider, rightDivider].forEach(panel.addSubview)
+        for label in [speed, gear, range] {
+            label.textAlignment = .center
+            label.adjustsFontSizeToFitWidth = true
+            label.minimumScaleFactor = 0.6
+            label.textColor = UIColor(red: 0.025, green: 0.045, blue: 0.065, alpha: 1)
+        }
+        gear.backgroundColor = tdMint
+        gear.clipsToBounds = true
+        for divider in [leftDivider, rightDivider] {
+            divider.backgroundColor = UIColor.black.withAlphaComponent(0.13)
+        }
+        panel.accessibilityHint = "长按打开设置，拖动调整位置"
         panel.accessibilityCustomActions = [
-            UIAccessibilityCustomAction(name: "展开或收起仪表", target: self, selector: #selector(accessibilityToggle)),
             UIAccessibilityCustomAction(name: "打开仪表设置", target: self, selector: #selector(accessibilitySettings))
         ]
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(drag(_:)))
+        pan.delegate = self; panel.addGestureRecognizer(pan)
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
+        hold.minimumPressDuration = 0.65; hold.allowableMovement = 10
+        hold.delegate = self; panel.addGestureRecognizer(hold)
         client.onChange = { [weak self] in self?.refresh() }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.refresh() }
+        timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in self?.refresh() }
         timer?.tolerance = 0.15
+        if let timer = timer { RunLoop.main.add(timer, forMode: .common) }
         refresh()
     }
     deinit { timer?.invalidate() }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        layoutPanel()
-    }
-    private var safeFrame: CGRect {
-        view.bounds.inset(by: view.safeAreaInsets).insetBy(dx: 10, dy: 10)
-    }
+    override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); layoutPanel() }
+    private var safeFrame: CGRect { view.bounds.inset(by: view.safeAreaInsets).insetBy(dx: 10, dy: 10) }
     private func layoutPanel() {
         guard isViewLoaded, view.bounds.width > 0 else { return }
         let safe = safeFrame
-        let natural = collapsed ? CGSize(width: 112, height: 66) :
-            (landscape ? CGSize(width: 316, height: 110) : CGSize(width: 226, height: 150))
-        let size = CGSize(width: min(natural.width, safe.width), height: min(natural.height, safe.height))
+        let width = min(landscape ? 336 : 300, safe.width)
+        let scale = width / 336
+        let size = CGSize(width: width, height: 68 * scale)
         let key = landscape ? "landscape" : "portrait"
         let changed = orientationKey != key || panel.bounds.size != size
         panel.bounds = CGRect(origin: .zero, size: size)
         if changed {
             orientationKey = key
-            let x = tdPrefs.object(forKey: "position.\(key).x") as? Double ?? (landscape ? 0.98 : 0.98)
-            let y = tdPrefs.object(forKey: "position.\(key).y") as? Double ?? (landscape ? 0.98 : 0.63)
+            let x = tdPrefs.object(forKey: "capsule.position.\(key).x") as? Double ?? 0.98
+            let y = tdPrefs.object(forKey: "capsule.position.\(key).y") as? Double ?? (landscape ? 0.02 : 0.22)
             panel.frame.origin = CGPoint(x: safe.minX + CGFloat(x) * max(0, safe.width - size.width),
                                          y: safe.minY + CGFloat(y) * max(0, safe.height - size.height))
         }
         clampPanel()
-        let opacity = tdPrefs.object(forKey: "opacity") as? Double ?? 0.30
-        panel.backgroundColor = UIColor(red: 0.035, green: 0.065, blue: 0.08, alpha: CGFloat(max(0, min(0.8, opacity))))
-        [brand, gear, battery, detail, state, batteryIcon, separator, meterTrack].forEach { $0.isHidden = collapsed }
-        speed.font = .monospacedDigitSystemFont(ofSize: collapsed ? 34 : 52, weight: .semibold)
-        if collapsed {
-            speed.frame = CGRect(x: 10, y: 5, width: 72, height: 40)
-            unit.frame = CGRect(x: 13, y: 45, width: 50, height: 15)
-            settingsButton.frame = CGRect(x: size.width - 38, y: 20, width: 38, height: 44)
-        } else if landscape {
-            brand.frame = CGRect(x: 16, y: 10, width: 180, height: 14)
-            speed.frame = CGRect(x: 14, y: 25, width: 107, height: 57)
-            unit.frame = CGRect(x: 19, y: 82, width: 50, height: 14)
-            separator.frame = CGRect(x: 130, y: 32, width: 0.5, height: 59)
-            gear.frame = CGRect(x: 147, y: 31, width: 40, height: 30)
-            batteryIcon.frame = CGRect(x: 201, y: 37, width: 22, height: 15)
-            battery.frame = CGRect(x: 230, y: 29, width: 68, height: 31)
-            detail.frame = CGRect(x: 147, y: 63, width: 153, height: 16)
-            state.frame = CGRect(x: 147, y: 83, width: 153, height: 14)
-            settingsButton.frame = CGRect(x: size.width - 44, y: 0, width: 44, height: 32)
-            meterTrack.frame = CGRect(x: 16, y: 103, width: size.width - 32, height: 3)
-        } else {
-            brand.frame = CGRect(x: 15, y: 12, width: 170, height: 14)
-            speed.frame = CGRect(x: 13, y: 28, width: 117, height: 59)
-            unit.frame = CGRect(x: 18, y: 86, width: 50, height: 14)
-            separator.frame = CGRect(x: 136, y: 36, width: 0.5, height: 61)
-            gear.frame = CGRect(x: 153, y: 32, width: 56, height: 29)
-            batteryIcon.frame = CGRect(x: 151, y: 75, width: 19, height: 14)
-            battery.frame = CGRect(x: 174, y: 66, width: 46, height: 29)
-            detail.frame = CGRect(x: 16, y: 108, width: size.width - 32, height: 15)
-            state.frame = CGRect(x: 16, y: 127, width: size.width - 32, height: 13)
-            settingsButton.frame = CGRect(x: size.width - 44, y: 0, width: 44, height: 32)
-            meterTrack.frame = CGRect(x: 16, y: 145, width: size.width - 32, height: 3)
+        let opacity = tdPrefs.object(forKey: "capsule.opacity") as? Double ?? 0.94
+        panel.backgroundColor = UIColor(red: 0.96, green: 0.975, blue: 1, alpha: CGFloat(max(0, min(1, opacity))))
+        panel.layer.cornerRadius = 30 * scale
+        func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect {
+            CGRect(x: x * scale, y: y * scale, width: w * scale, height: h * scale)
         }
-        let percent = currentBattery ?? 0
-        meterFill.frame = CGRect(x: 0, y: 0, width: meterTrack.bounds.width * CGFloat(percent / 100), height: 3)
+        speed.frame = rect(16, 9, 105, 50)
+        leftDivider.frame = rect(126, 19, 1, 30)
+        gear.frame = rect(148, 14, 48, 40)
+        gear.font = .systemFont(ofSize: 29 * scale, weight: .medium)
+        gear.layer.cornerRadius = 15 * scale
+        rightDivider.frame = rect(218, 19, 1, 30)
+        range.frame = rect(230, 13, 94, 43)
+        updateReadings(scale: scale)
     }
     private func clampPanel() {
         let safe = safeFrame
@@ -167,33 +116,34 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
         guard let date = date else { return false }
         return client.isConnected && (-1...seconds).contains(Date().timeIntervalSince(date))
     }
-    private var currentBattery: Double? {
-        guard client.isConnected, client.batteryUpdatedAt != nil, let value = client.telemetry.batteryPercent,
-              value.isFinite, (0...100).contains(value) else { return nil }
-        return value
+    private func reading(_ value: String, unit: String, font: CGFloat, scale: CGFloat) -> NSAttributedString {
+        let text = NSMutableAttributedString(string: value, attributes: [
+            .font: UIFont.monospacedDigitSystemFont(ofSize: font * scale, weight: .medium)
+        ])
+        text.append(NSAttributedString(string: " " + unit, attributes: [.font: UIFont.systemFont(ofSize: 14 * scale)]))
+        return text
+    }
+    private func updateReadings(scale: CGFloat) {
+        let speedValue = fresh(client.speedUpdatedAt) ? client.telemetry.speedKph : nil
+        let speedText: String
+        if let value = speedValue, value.isFinite, (0...350).contains(value) {
+            speedText = String(format: "%.0f", ceil(value))
+        } else { speedText = "—" }
+        speed.attributedText = reading(speedText, unit: "km/h", font: 38, scale: scale)
+        gear.text = fresh(client.gearUpdatedAt) ? (client.telemetry.gear ?? "—") : "—"
+        let rangeValue = client.isConnected && client.rangeUpdatedAt != nil ? client.telemetry.rangeKm : nil
+        var rangeText = "—"
+        let old = rangeValue != nil && !fresh(client.rangeUpdatedAt, seconds: 45)
+        if let value = rangeValue, value.isFinite, (0...2000).contains(value) {
+            rangeText = String(format: "%.0f", value)
+        }
+        range.attributedText = reading(rangeText, unit: old ? "km*" : "km", font: 29, scale: scale)
+        speed.accessibilityLabel = "车速 \(speedText) 公里每小时"
+        gear.accessibilityLabel = "挡位 \(gear.text ?? "未知")"
+        range.accessibilityLabel = "\(old ? "上次驻车" : "车辆")续航 \(rangeText) 公里"
     }
     func refresh() {
         guard isViewLoaded else { return }
-        let data = client.telemetry
-        let liveSpeed = fresh(client.speedUpdatedAt) ? data.speedKph : nil
-        if let value = liveSpeed, value.isFinite, (0...350).contains(value) {
-            speed.text = String(format: "%.0f", ceil(value))
-            speed.textColor = .white
-            if let stamp = client.speedUpdatedAt, stamp != lastTelemetryDate {
-                trip.ingest(speed: value, at: stamp); lastTelemetryDate = stamp
-            }
-        } else { speed.text = "—"; speed.textColor = UIColor.white.withAlphaComponent(0.65); trip.interrupt() }
-        gear.text = fresh(client.gearUpdatedAt) ? (data.gear ?? "—") : "—"
-        let batteryOld = currentBattery != nil && !fresh(client.batteryUpdatedAt, seconds: 45)
-        battery.text = currentBattery.map { String(format: "%.0f%%%@", $0, batteryOld ? "*" : "") } ?? "—%"
-        batteryIcon.tintColor = (currentBattery ?? 100) < 20 ? .systemOrange : tdMint
-        meterFill.backgroundColor = batteryIcon.tintColor
-        detail.text = String(format: "本次 ≈ %.1f km  ·  %02d:%02d", trip.distanceKm, Int(trip.activeSeconds) / 60, Int(trip.activeSeconds) % 60)
-        state.text = liveSpeed == nil && client.isConnected ? "等待车辆读数 · \(client.status)" : client.status
-        if liveSpeed != nil && batteryOld { state.text = "BLE 实时 · *上次驻车电量" }
-        speed.accessibilityLabel = liveSpeed == nil ? "车速信号中断" : "车速 \(speed.text ?? "") 公里每小时"
-        gear.accessibilityLabel = "挡位 \(gear.text ?? "未知")"
-        battery.accessibilityLabel = "车辆电量 \(battery.text ?? "未知")"
         layoutPanel()
         (presentedViewController as? TDSettingsController)?.updateStatus()
     }
@@ -207,13 +157,11 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
         clampPanel()
         if recognizer.state == .ended || recognizer.state == .cancelled {
             let safe = safeFrame
-            tdPrefs.set(Double((panel.frame.minX - safe.minX) / max(1, safe.width - panel.bounds.width)), forKey: "position.\(orientationKey).x")
-            tdPrefs.set(Double((panel.frame.minY - safe.minY) / max(1, safe.height - panel.bounds.height)), forKey: "position.\(orientationKey).y")
+            tdPrefs.set(Double((panel.frame.minX - safe.minX) / max(1, safe.width - panel.bounds.width)), forKey: "capsule.position.\(orientationKey).x")
+            tdPrefs.set(Double((panel.frame.minY - safe.minY) / max(1, safe.height - panel.bounds.height)), forKey: "capsule.position.\(orientationKey).y")
         }
     }
-    @objc private func toggleCollapsed() { collapsed.toggle(); tdPrefs.set(collapsed, forKey: "collapsed"); layoutPanel() }
     @objc private func held(_ recognizer: UILongPressGestureRecognizer) { if recognizer.state == .began { openSettings() } }
-    @objc private func accessibilityToggle() -> Bool { toggleCollapsed(); return true }
     @objc private func accessibilitySettings() -> Bool { openSettings(); return true }
     @objc func openSettings() {
         guard presentedViewController == nil else { return }
@@ -226,8 +174,7 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
     func closeSettings() {
         dismiss(animated: true) { [weak self] in self?.hostKeyWindow?.makeKey(); self?.refresh() }
     }
-    func setOpacity(_ value: Float) { tdPrefs.set(Double(value), forKey: "opacity"); layoutPanel() }
-    func resetTrip() { trip.reset(); lastTelemetryDate = nil; refresh() }
+    func setOpacity(_ value: Float) { tdPrefs.set(Double(value), forKey: "capsule.opacity"); layoutPanel() }
 }
 
 final class TDSettingsController: UIViewController {
@@ -264,7 +211,7 @@ final class TDSettingsController: UIViewController {
         ])
         addText("T–DASH", size: 25, color: tdMint)
         addText("特斯拉蓝牙仪表 · 高德悬浮版", size: 14)
-        addText("拖动移动位置 · 双击收起或展开 · 长按打开设置\n横屏与竖屏分别记住位置。", size: 12, color: .lightGray)
+        addText("拖动移动位置 · 长按 0.65 秒打开设置\n横屏与竖屏分别记住位置。", size: 12, color: .lightGray)
         vinField.placeholder = "车辆 VIN（17 位）"
         vinField.text = tdPrefs.string(forKey: "vin") ?? ""
         vinField.borderStyle = .roundedRect; vinField.autocapitalizationType = .allCharacters
@@ -280,14 +227,13 @@ final class TDSettingsController: UIViewController {
         stack.addArrangedSubview(status)
         addText("先连接，再添加钥匙；按车机提示用实体卡片确认。私钥仅存储于本机钥匙串。", size: 12, color: .lightGray)
         let slider = UISlider()
-        slider.minimumValue = 0; slider.maximumValue = 0.8
-        slider.value = Float(tdPrefs.object(forKey: "opacity") as? Double ?? 0.30)
+        slider.minimumValue = 0; slider.maximumValue = 1
+        slider.value = Float(tdPrefs.object(forKey: "capsule.opacity") as? Double ?? 0.94)
         slider.tintColor = tdMint; slider.accessibilityLabel = "仪表底色不透明度"
         slider.addTarget(self, action: #selector(opacityChanged(_:)), for: .valueChanged)
         opacityLabel.font = .systemFont(ofSize: 13); stack.addArrangedSubview(opacityLabel)
         stack.addArrangedSubview(slider); opacityChanged(slider)
-        addText("只调节底色，数字始终清晰。0% 为透明底。\n车速与挡位超时 3 秒清空。电量在停车时更新；超过 45 秒标 *，表示上次驻车读数，断连后清空。\n本次里程由有效蓝牙车速积分估算；退到后台或断联期间不计入。", size: 12, color: .lightGray)
-        addButton("重置本次行程", action: #selector(resetTrip))
+        addText("仪表只显示车速、挡位、车辆续航。背景可调透明度，黑色数字适合浅色底。\n车速与挡位超时 3 秒清空。续航来自车辆 battery_range，在停车时更新；超过 45 秒标 *，表示上次驻车读数，断连后清空。", size: 12, color: .lightGray)
         addButton("断开蓝牙", action: #selector(disconnect))
         addButton("完成", action: #selector(close))
         updateStatus()
@@ -339,7 +285,6 @@ final class TDSettingsController: UIViewController {
         present(alert, animated: true)
     }
     @objc private func disconnect() { client.disconnect(); updateStatus() }
-    @objc private func resetTrip() { dashboard?.resetTrip() }
     @objc private func close() { view.endEditing(true); dashboard?.closeSettings() }
     @objc private func opacityChanged(_ slider: UISlider) {
         dashboard?.setOpacity(slider.value)

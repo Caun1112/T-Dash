@@ -25,6 +25,7 @@ enum TDProtocolError: Error, LocalizedError {
 struct TDTelemetry {
     var speedKph: Double? = nil
     var batteryPercent: Double? = nil
+    var rangeKm: Double? = nil
     var gear: String? = nil
     var powerKW: Double? = nil
     var odometerKm: Double? = nil
@@ -173,6 +174,13 @@ enum TDProto {
         }
         if let charge = try vehicle.nested(3), let battery = try charge.uint(114), battery <= 100 {
             result.batteryPercent = Double(battery)
+        }
+        if let charge = try vehicle.nested(3), let bits = try charge.fixed32(111) {
+            // ChargeState.battery_range is miles, matching Android StatusViewModel.
+            let miles = Double(Float(bitPattern: bits))
+            if miles.isFinite && miles >= 0 && miles <= 1242.7424 {
+                result.rangeKm = miles * 1.609344
+            }
         }
         return result
     }
