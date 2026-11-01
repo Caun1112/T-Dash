@@ -31,28 +31,16 @@ private final class PreviewMap: UIView {
     }
 }
 
-#if TDASH_HEADLESS
 @main enum PreviewCLI {
     static func main() {
         precondition(CommandLine.arguments.count == 2)
-        PreviewApp().renderPreviews(to: URL(fileURLWithPath: CommandLine.arguments[1]))
+        PreviewRenderer().renderPreviews(to: URL(fileURLWithPath: CommandLine.arguments[1]))
     }
 }
-#else
-@main
-#endif
-final class PreviewApp: UIResponder, UIApplicationDelegate {
-    var window: UIWindow?
-    func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        let window = UIWindow(frame: UIScreen.main.bounds)
-        window.rootViewController = UIViewController(); window.makeKeyAndVisible(); self.window = window
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.renderPreviews() }
-        return true
-    }
-    fileprivate func renderPreviews(to output: URL? = nil) {
+final class PreviewRenderer {
+    fileprivate func renderPreviews(to folder: URL) {
         let prefs = UserDefaults(suiteName: "com.caun.tdash.amap")!
         prefs.removePersistentDomain(forName: "com.caun.tdash.amap")
-        let folder = output ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let client = TDTeslaClient(); client.loadPreviewFixture()
         let dashboard = TDDashboardController(client: client)
         _ = dashboard.view
