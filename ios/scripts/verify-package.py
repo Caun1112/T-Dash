@@ -32,5 +32,5 @@ with tempfile.TemporaryDirectory() as tmp:
     initializers = run('xcrun', 'dyld_info', '-inits', str(binary))
     assert initializers.count('_TDashLoad') == 2, initializers
     subprocess.run(['xcrun', 'dyld_info', '-validate_only', str(binary)], check=True)
-    subprocess.run(['codesign', '--verify', '--verbose', str(binary)], check=True)
+    subprocess.run(['codesign', '--verify', '--all-architectures', '--verbose', str(binary)], check=True)
 print('PASS: rootless layout, AMap-only filter, arm64/arm64e, initializer, load paths and signature')

@@ -19,7 +19,9 @@ for ARCH in arm64 arm64e; do
         -o "$OUT/TDash-$ARCH.dylib"
 done
 xcrun lipo -create "$OUT/TDash-arm64.dylib" "$OUT/TDash-arm64e.dylib" -output "$OUT/TDash.dylib"
-ldid -S "$OUT/TDash.dylib"
+# Apple codesign signs every fat slice, including the current arm64e ABI subtype.
+# Homebrew ldid can leave that slice unsigned while returning success.
+codesign --force --sign - --timestamp=none --identifier com.caun.tdash.amap "$OUT/TDash.dylib"
 STAGE="$(mktemp -d "$OUT/package.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 LIB="$STAGE/var/jb/Library/MobileSubstrate/DynamicLibraries"

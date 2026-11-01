@@ -44,14 +44,14 @@ Rootless 路径与架构依据：[Theos rootless 文档](https://theos.dev/docs/
 
 ## 构建与验证
 
-GitHub Actions 工作流 `Build iOS rootless DEB`：macOS + Xcode，编译 arm64/arm64e 双架构、ldid ad-hoc 签名、dpkg 打包。`workflow_dispatch` 输入版本号。
+GitHub Actions 工作流 `Build iOS rootless DEB`：macOS + Xcode，编译 arm64/arm64e 双架构、Apple codesign ad-hoc 签名、dpkg 打包。`workflow_dispatch` 输入版本号。
 
 ```sh
 bash ios/scripts/test.sh
 TDASH_VERSION=0.1.0 bash ios/scripts/build.sh
 ```
 
-本机编译需完整 Xcode、`ldid` 和 `dpkg`。输出 `ios/packages/`。构建脚本会检查实际 DEB 的安装路径、架构、Bundle 过滤、Mach-O 初始化入口、依赖和签名；协议测试覆盖官方加密向量、模拟车端会话、篡改/重放/坏包、分片和行程断流。
+本机编译需完整 Xcode 和 `dpkg`。输出 `ios/packages/`。构建脚本会检查实际 DEB 的安装路径、架构、Bundle 过滤、Mach-O 初始化入口、依赖和所有架构的签名；协议测试覆盖官方加密向量、模拟车端会话、篡改/重放/坏包、分片和行程断流。
 
 **验证边界：未接入用户的越狱手机与 Tesla 实车，因此无法宣称已实机注入成功、完成车机配对或验证具体车型/固件。** 当前高德版本必须包含 `NSBluetoothAlwaysUsageDescription`；缺少时插件提示原因并拒绝启动蓝牙，避免宿主因隐私声明缺失崩溃。不能由 DEB 修改 App Store 高德签名内的 Info.plist 来补齐权限。
 

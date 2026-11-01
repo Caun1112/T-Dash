@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install package tools
-        run: brew install ldid dpkg
+        run: brew install dpkg
       - name: Test protocol and trip logic
         run: bash ios/scripts/test.sh
       - name: Build and verify rootless package
