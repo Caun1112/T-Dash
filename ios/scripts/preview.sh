@@ -5,7 +5,7 @@ APP="$ROOT/ios/.build/TDashPreview.app"
 mkdir -p "$APP" "$ROOT/ios/.build/previews"
 SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
 ARCH="$(uname -m)"
-xcrun --sdk iphonesimulator swiftc -swift-version 5 -D TDASH_PREVIEW \
+xcrun --sdk iphonesimulator swiftc -swift-version 5 -D TDASH_PREVIEW -D TDASH_HEADLESS \
   -target "$ARCH-apple-ios15.0-simulator" -sdk "$SDK" \
   "$ROOT"/ios/TDash/*.swift "$ROOT/ios/Tests/PreviewApp.swift" -o "$APP/TDashPreview"
 cat > "$APP/Info.plist" <<'PLIST'
@@ -26,16 +26,11 @@ codesign --force --sign - "$APP"
 DEVICE="$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if "iPhone" in x["name"]))')"
 xcrun simctl boot "$DEVICE" || true
 xcrun simctl bootstatus "$DEVICE" -b
-xcrun simctl install "$DEVICE" "$APP"
-xcrun simctl launch "$DEVICE" com.caun.tdash.preview
-DATA="$(xcrun simctl get_app_container "$DEVICE" com.caun.tdash.preview data)"
-for attempt in $(seq 1 45); do
-  if [[ -f "$DATA/Documents/preview-complete.txt" ]]; then
-    cp "$DATA/Documents/"*.png "$DATA/Documents/preview-complete.txt" "$ROOT/ios/.build/previews/"
-    cat "$DATA/Documents/preview-complete.txt"
-    exit 0
-  fi
-  sleep 2
-done
-echo 'Native preview failed or timed out' >&2
-exit 1
+# This test renders UIKit layers without SpringBoard/App installation. It tests
+# the real layout code, while avoiding hosted-runner MobileInstallation hangs.
+python3 - "$DEVICE" "$APP/TDashPreview" "$ROOT/ios/.build/previews" <<'PY'
+import subprocess, sys
+subprocess.run(['xcrun', 'simctl', 'spawn', sys.argv[1], sys.argv[2], sys.argv[3]], check=True, timeout=90)
+PY
+test -f "$ROOT/ios/.build/previews/preview-complete.txt"
+cat "$ROOT/ios/.build/previews/preview-complete.txt"
