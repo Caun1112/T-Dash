@@ -22,8 +22,15 @@ jobs:
         env:
           TDASH_VERSION: ${{ inputs.version }}
         run: bash ios/scripts/build.sh
+      - name: Render and check native landscape and portrait layouts
+        run: bash ios/scripts/preview.sh
       - uses: actions/upload-artifact@v4
         with:
           name: TDash-rootless-${{ inputs.version }}
           path: ios/packages/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TDash-native-previews
+          path: ios/.build/previews/
           if-no-files-found: error

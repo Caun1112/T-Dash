@@ -1,5 +1,7 @@
 # T-Dash — 开源免费的 Tesla 仪表盘 App
 
+**iOS rootless 高德悬浮仪表移植：** [安装、横竖屏操作与验证范围](ios/README.md)。
+
 > **在线演示 · Live demo：[tdash-jb9s5m4ncnw.qoder.website](https://tdash-jb9s5m4ncnw.qoder.website)**
 > 功能 / 摆放 / 延迟 / 安全 / 未来计划，一页看完。
 
