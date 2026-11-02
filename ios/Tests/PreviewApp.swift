@@ -45,6 +45,9 @@ final class PreviewRenderer {
         let dashboard = TDDashboardController(client: client)
         _ = dashboard.view
         func render(_ name: String, _ size: CGSize, _ controller: TDDashboardController) {
+            // Rendering/font initialization can take >3 seconds on hosted runners.
+            // Refresh only the test fixture; production stale-data handling is unchanged.
+            if client.isConnected { client.loadPreviewFixture(speedKph: client.telemetry.speedKph ?? 120) }
             let container = UIView(frame: CGRect(origin: .zero, size: size))
             let backdrop = PreviewMap(frame: container.bounds); container.addSubview(backdrop)
             controller.view.frame = container.bounds; container.addSubview(controller.view)
