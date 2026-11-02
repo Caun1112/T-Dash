@@ -41,7 +41,7 @@ final class PreviewRenderer {
     fileprivate func renderPreviews(to folder: URL) {
         let prefs = UserDefaults(suiteName: "com.caun.tdash.amap")!
         prefs.removePersistentDomain(forName: "com.caun.tdash.amap")
-        let client = TDTeslaClient(); client.loadPreviewFixture()
+        let client = TDTeslaClient(); client.loadPreviewFixture(speedKph: 120)
         let dashboard = TDDashboardController(client: client)
         _ = dashboard.view
         func render(_ name: String, _ size: CGSize, _ controller: TDDashboardController) {
@@ -61,19 +61,58 @@ final class PreviewRenderer {
             try! image.pngData()!.write(to: folder.appendingPathComponent("\(name).png"))
             controller.view.removeFromSuperview()
         }
+        func verifySpeedSpacing(_ controller: TDDashboardController) {
+            let number = controller.panel.subviews.first { $0.accessibilityIdentifier == "tdash.speed" } as! UILabel
+            let unit = controller.panel.subviews.first { $0.accessibilityIdentifier == "tdash.speedUnit" } as! UILabel
+            precondition(number.font.fontName == "PingFangSC-Medium")
+            precondition(unit.font.fontName == "PingFangSC-Medium")
+            let scale = controller.panel.bounds.width / 360
+            precondition(unit.frame.minX - number.frame.maxX >= 7.9 * scale)
+            precondition(!number.frame.intersects(unit.frame))
+            precondition(("km/h" as NSString).size(withAttributes: [.font: unit.font!]).width <= unit.bounds.width - scale)
+            // Measure all possible displayed three-digit values, not just a mock screenshot.
+            for speed in 0...350 {
+                let measured = (String(speed) as NSString).size(withAttributes: [.font: number.font!]).width
+                precondition(measured <= number.bounds.width - 6 * scale, "No spare room for \(speed)")
+            }
+        }
         render("landscape", CGSize(width: 844, height: 390), dashboard)
+        verifySpeedSpacing(dashboard)
         render("portrait", CGSize(width: 390, height: 844), dashboard)
+        verifySpeedSpacing(dashboard)
         render("landscape-small", CGSize(width: 667, height: 375), dashboard)
+        verifySpeedSpacing(dashboard)
         render("portrait-small", CGSize(width: 320, height: 568), dashboard)
-        // Labels and dividers only: no visible button or secondary dashboard content.
-        precondition(dashboard.panel.subviews.count == 5)
+        verifySpeedSpacing(dashboard)
+        for value in [100, 199, 350] {
+            client.loadPreviewFixture(speedKph: Double(value))
+            render("speed-\(value)", CGSize(width: 844, height: 390), dashboard)
+            verifySpeedSpacing(dashboard)
+        }
+        precondition(dashboard.panel.subviews.count == 6)
         precondition(!dashboard.panel.subviews.contains { $0 is UIControl })
-        precondition(dashboard.panel.gestureRecognizers?.contains { $0 is UILongPressGestureRecognizer } == true)
+        let gestures = dashboard.panel.gestureRecognizers ?? []
+        let pan = gestures.compactMap { $0 as? UIPanGestureRecognizer }.first!
+        let hold = gestures.compactMap { $0 as? UILongPressGestureRecognizer }.first!
+        let triple = gestures.compactMap { $0 as? UITapGestureRecognizer }.first!
+        precondition(triple.numberOfTapsRequired == 3 && triple.numberOfTouchesRequired == 1)
+        precondition(!dashboard.positionLocked && pan.isEnabled)
+        dashboard.togglePositionLock()
+        precondition(dashboard.positionLocked && !pan.isEnabled && hold.isEnabled && triple.isEnabled)
+        precondition(prefs.bool(forKey: "capsule.positionLocked"))
+        let restored = TDDashboardController(client: TDTeslaClient()); _ = restored.view
+        precondition(restored.positionLocked)
+        precondition(restored.panel.gestureRecognizers?.compactMap { $0 as? UIPanGestureRecognizer }.first?.isEnabled == false)
+        render("locked", CGSize(width: 844, height: 390), dashboard)
+        precondition(dashboard.positionLocked && !pan.isEnabled)
+        dashboard.togglePositionLock()
+        precondition(!dashboard.positionLocked && pan.isEnabled && hold.isEnabled)
+        precondition(!prefs.bool(forKey: "capsule.positionLocked"))
         client.disconnect()
         render("disconnected", CGSize(width: 844, height: 390), dashboard)
-        let labels = dashboard.panel.subviews.compactMap { $0 as? UILabel }
+        let labels = dashboard.panel.subviews.compactMap { $0 as? UILabel }.filter { $0.accessibilityIdentifier != "tdash.speedUnit" }
         precondition(labels.allSatisfy { ($0.attributedText?.string ?? $0.text ?? "").contains("—") })
-        try! Data("PASS: native UIKit landscape, portrait, repeated rotation, small-screen bounds, long-press access and disconnected readings\n".utf8)
+        try! Data("PASS: native UIKit portrait/landscape, PingFangSC-Medium, 0...350 speed widths with spare room, separate unit gap, three-tap lock persistence/unlock, long-press access and disconnected readings\n".utf8)
             .write(to: folder.appendingPathComponent("preview-complete.txt"))
     }
 }

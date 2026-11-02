@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="$ROOT/ios/.build"
 PACKAGE="$ROOT/ios/packages"
-VERSION="${TDASH_VERSION:-0.1.1}"
+VERSION="${TDASH_VERSION:-0.1.2}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][a-zA-Z0-9.]+)?$ ]] || { echo 'Invalid version' >&2; exit 1; }
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 mkdir -p "$OUT" "$PACKAGE"

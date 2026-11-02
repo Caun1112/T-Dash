@@ -5,6 +5,10 @@ import UIKit
 private let tdMint = UIColor(red: 0.40, green: 0.96, blue: 0.81, alpha: 1)
 private let tdPrefs = UserDefaults(suiteName: "com.caun.tdash.amap")!
 
+private func tdFont(_ size: CGFloat) -> UIFont {
+    UIFont(name: "PingFangSC-Medium", size: size) ?? .systemFont(ofSize: size, weight: .medium)
+}
+
 final class TDOverlayWindow: UIWindow {
     weak var dashboard: TDDashboardController?
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -20,6 +24,11 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
     let client: TDTeslaClient
     let panel = UIView()
     private let speed = UILabel()
+    private let speedUnit = UILabel()
+    private let lockFeedback = UILabel()
+    private var feedbackWork: DispatchWorkItem?
+    private var panGesture: UIPanGestureRecognizer!
+    private(set) var positionLocked = tdPrefs.bool(forKey: "capsule.positionLocked")
     private let gear = UILabel()
     private let range = UILabel()
     private let leftDivider = UIView()
@@ -45,24 +54,45 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
         panel.layer.shadowOpacity = 0.16
         panel.layer.shadowOffset = CGSize(width: 0, height: 3)
         view.addSubview(panel)
-        [speed, gear, range, leftDivider, rightDivider].forEach(panel.addSubview)
-        for label in [speed, gear, range] {
+        [speed, speedUnit, gear, range, leftDivider, rightDivider].forEach(panel.addSubview)
+        for label in [speed, speedUnit, gear, range] {
             label.textAlignment = .center
             label.adjustsFontSizeToFitWidth = true
             label.minimumScaleFactor = 0.6
             label.textColor = UIColor(red: 0.025, green: 0.045, blue: 0.065, alpha: 1)
         }
+        speed.accessibilityIdentifier = "tdash.speed"
+        speedUnit.accessibilityIdentifier = "tdash.speedUnit"
+        speedUnit.text = "km/h"
+        speedUnit.isAccessibilityElement = false
+        speed.adjustsFontSizeToFitWidth = false
+        speedUnit.adjustsFontSizeToFitWidth = false
+        speed.textAlignment = .right
+        speedUnit.textAlignment = .left
+        lockFeedback.font = tdFont(13)
+        lockFeedback.textAlignment = .center
+        lockFeedback.textColor = .white
+        lockFeedback.backgroundColor = UIColor.black.withAlphaComponent(0.82)
+        lockFeedback.layer.cornerRadius = 12; lockFeedback.clipsToBounds = true
+        lockFeedback.isUserInteractionEnabled = false; lockFeedback.isHidden = true
+        view.addSubview(lockFeedback)
         gear.backgroundColor = tdMint
         gear.clipsToBounds = true
         for divider in [leftDivider, rightDivider] {
             divider.backgroundColor = UIColor.black.withAlphaComponent(0.13)
         }
-        panel.accessibilityHint = "长按打开设置，拖动调整位置"
+        updateLockHint()
         panel.accessibilityCustomActions = [
-            UIAccessibilityCustomAction(name: "打开仪表设置", target: self, selector: #selector(accessibilitySettings))
+            UIAccessibilityCustomAction(name: "打开仪表设置", target: self, selector: #selector(accessibilitySettings)),
+            UIAccessibilityCustomAction(name: "锁定或解锁位置", target: self, selector: #selector(accessibilityLock))
         ]
         let pan = UIPanGestureRecognizer(target: self, action: #selector(drag(_:)))
         pan.delegate = self; panel.addGestureRecognizer(pan)
+        panGesture = pan; pan.isEnabled = !positionLocked
+        let tripleTap = UITapGestureRecognizer(target: self, action: #selector(togglePositionLock))
+        tripleTap.numberOfTapsRequired = 3
+        tripleTap.numberOfTouchesRequired = 1
+        tripleTap.delegate = self; panel.addGestureRecognizer(tripleTap)
         let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
         hold.minimumPressDuration = 0.65; hold.allowableMovement = 10
         hold.delegate = self; panel.addGestureRecognizer(hold)
@@ -72,14 +102,14 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
         if let timer = timer { RunLoop.main.add(timer, forMode: .common) }
         refresh()
     }
-    deinit { timer?.invalidate() }
+    deinit { timer?.invalidate(); feedbackWork?.cancel() }
     override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); layoutPanel() }
     private var safeFrame: CGRect { view.bounds.inset(by: view.safeAreaInsets).insetBy(dx: 10, dy: 10) }
     private func layoutPanel() {
         guard isViewLoaded, view.bounds.width > 0 else { return }
         let safe = safeFrame
-        let width = min(landscape ? 336 : 300, safe.width)
-        let scale = width / 336
+        let width = min(landscape ? 360 : 320, safe.width)
+        let scale = width / 360
         let size = CGSize(width: width, height: 68 * scale)
         let key = landscape ? "landscape" : "portrait"
         let changed = orientationKey != key || panel.bounds.size != size
@@ -98,13 +128,22 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
         func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect {
             CGRect(x: x * scale, y: y * scale, width: w * scale, height: h * scale)
         }
-        speed.frame = rect(16, 9, 105, 50)
-        leftDivider.frame = rect(126, 19, 1, 30)
-        gear.frame = rect(148, 14, 48, 40)
-        gear.font = .systemFont(ofSize: 29 * scale, weight: .medium)
+        // Separate fixed-width views reserve space for every three-digit speed.
+        // Align on a shared font baseline rather than squeezing number and unit together.
+        speed.font = tdFont(38 * scale)
+        speedUnit.font = tdFont(13 * scale)
+        let baseline = 46 * scale
+        speed.frame = CGRect(x: 14 * scale, y: baseline - speed.font.ascender,
+                             width: 86 * scale, height: speed.font.lineHeight)
+        speedUnit.frame = CGRect(x: 108 * scale, y: baseline - speedUnit.font.ascender,
+                                 width: 35 * scale, height: speedUnit.font.lineHeight)
+        leftDivider.frame = rect(152, 19, 1, 30)
+        gear.frame = rect(172, 14, 48, 40)
+        gear.font = tdFont(29 * scale)
         gear.layer.cornerRadius = 15 * scale
-        rightDivider.frame = rect(218, 19, 1, 30)
-        range.frame = rect(230, 13, 94, 43)
+        rightDivider.frame = rect(240, 19, 1, 30)
+        range.frame = rect(250, 13, 98, 43)
+        layoutLockFeedback()
         updateReadings(scale: scale)
     }
     private func clampPanel() {
@@ -118,9 +157,9 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
     }
     private func reading(_ value: String, unit: String, font: CGFloat, scale: CGFloat) -> NSAttributedString {
         let text = NSMutableAttributedString(string: value, attributes: [
-            .font: UIFont.monospacedDigitSystemFont(ofSize: font * scale, weight: .medium)
+            .font: tdFont(font * scale)
         ])
-        text.append(NSAttributedString(string: " " + unit, attributes: [.font: UIFont.systemFont(ofSize: 14 * scale)]))
+        text.append(NSAttributedString(string: " " + unit, attributes: [.font: tdFont(14 * scale)]))
         return text
     }
     private func updateReadings(scale: CGFloat) {
@@ -129,7 +168,7 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
         if let value = speedValue, value.isFinite, (0...350).contains(value) {
             speedText = String(format: "%.0f", ceil(value))
         } else { speedText = "—" }
-        speed.attributedText = reading(speedText, unit: "km/h", font: 38, scale: scale)
+        speed.text = speedText
         gear.text = fresh(client.gearUpdatedAt) ? (client.telemetry.gear ?? "—") : "—"
         let rangeValue = client.isConnected && client.rangeUpdatedAt != nil ? client.telemetry.rangeKm : nil
         var rangeText = "—"
@@ -151,6 +190,7 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
         !(touch.view is UIControl)
     }
     @objc private func drag(_ recognizer: UIPanGestureRecognizer) {
+        guard !positionLocked else { return }
         if recognizer.state == .began { dragOrigin = panel.frame.origin }
         let delta = recognizer.translation(in: view)
         panel.frame.origin = CGPoint(x: dragOrigin.x + delta.x, y: dragOrigin.y + delta.y)
@@ -161,6 +201,33 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
             tdPrefs.set(Double((panel.frame.minY - safe.minY) / max(1, safe.height - panel.bounds.height)), forKey: "capsule.position.\(orientationKey).y")
         }
     }
+    private func updateLockHint() {
+        panel.accessibilityHint = positionLocked ? "位置已锁定，三连点解锁，长按打开设置" : "拖动调整位置，三连点锁定，长按打开设置"
+    }
+    private func layoutLockFeedback() {
+        let safe = safeFrame
+        let width = min(190, safe.width)
+        let y = panel.frame.maxY + 8 + 30 <= safe.maxY ? panel.frame.maxY + 8 : panel.frame.minY - 38
+        lockFeedback.frame = CGRect(x: max(safe.minX, min(panel.frame.midX - width / 2, safe.maxX - width)),
+                                    y: max(safe.minY, y), width: width, height: 30)
+    }
+    @objc func togglePositionLock() {
+        positionLocked.toggle()
+        tdPrefs.set(positionLocked, forKey: "capsule.positionLocked")
+        panGesture.isEnabled = !positionLocked
+        updateLockHint()
+        let message = positionLocked ? "位置已锁定 · 三连点解锁" : "位置已解锁 · 可拖动"
+        lockFeedback.text = message
+        layoutLockFeedback(); lockFeedback.isHidden = false
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        UIAccessibility.post(notification: .announcement, argument: message)
+        feedbackWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.lockFeedback.isHidden = true }
+        feedbackWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: work)
+        (presentedViewController as? TDSettingsController)?.updateStatus()
+    }
+    @objc private func accessibilityLock() -> Bool { togglePositionLock(); return true }
     @objc private func held(_ recognizer: UILongPressGestureRecognizer) { if recognizer.state == .began { openSettings() } }
     @objc private func accessibilitySettings() -> Bool { openSettings(); return true }
     @objc func openSettings() {
@@ -211,7 +278,8 @@ final class TDSettingsController: UIViewController {
         ])
         addText("T–DASH", size: 25, color: tdMint)
         addText("特斯拉蓝牙仪表 · 高德悬浮版", size: 14)
-        addText("拖动移动位置 · 长按 0.65 秒打开设置\n横屏与竖屏分别记住位置。", size: 12, color: .lightGray)
+        addText("三连点锁定／解锁位置 · 长按 0.65 秒打开设置\n解锁时可拖动；锁定状态会保存，横竖屏分别记住位置。", size: 12, color: .lightGray)
+        vinField.font = tdFont(16)
         vinField.placeholder = "车辆 VIN（17 位）"
         vinField.text = tdPrefs.string(forKey: "vin") ?? ""
         vinField.borderStyle = .roundedRect; vinField.autocapitalizationType = .allCharacters
@@ -223,7 +291,7 @@ final class TDSettingsController: UIViewController {
         stack.addArrangedSubview(vinField)
         addButton("连接车辆", action: #selector(connect))
         addButton("首次使用：添加蓝牙钥匙", action: #selector(pair))
-        status.numberOfLines = 0; status.font = .systemFont(ofSize: 13); status.textColor = tdMint
+        status.numberOfLines = 0; status.font = tdFont(13); status.textColor = tdMint
         stack.addArrangedSubview(status)
         addText("先连接，再添加钥匙；按车机提示用实体卡片确认。私钥仅存储于本机钥匙串。", size: 12, color: .lightGray)
         let slider = UISlider()
@@ -231,7 +299,7 @@ final class TDSettingsController: UIViewController {
         slider.value = Float(tdPrefs.object(forKey: "capsule.opacity") as? Double ?? 0.94)
         slider.tintColor = tdMint; slider.accessibilityLabel = "仪表底色不透明度"
         slider.addTarget(self, action: #selector(opacityChanged(_:)), for: .valueChanged)
-        opacityLabel.font = .systemFont(ofSize: 13); stack.addArrangedSubview(opacityLabel)
+        opacityLabel.font = tdFont(13); stack.addArrangedSubview(opacityLabel)
         stack.addArrangedSubview(slider); opacityChanged(slider)
         addText("仪表只显示车速、挡位、车辆续航。背景可调透明度，黑色数字适合浅色底。\n车速与挡位超时 3 秒清空。续航来自车辆 battery_range，在停车时更新；超过 45 秒标 *，表示上次驻车读数，断连后清空。", size: 12, color: .lightGray)
         addButton("断开蓝牙", action: #selector(disconnect))
@@ -242,11 +310,12 @@ final class TDSettingsController: UIViewController {
     deinit { NotificationCenter.default.removeObserver(self) }
     private func addText(_ text: String, size: CGFloat, color: UIColor = .white) {
         let label = UILabel(); label.text = text; label.numberOfLines = 0
-        label.font = .systemFont(ofSize: size); label.textColor = color; stack.addArrangedSubview(label)
+        label.font = tdFont(size); label.textColor = color; stack.addArrangedSubview(label)
     }
     private func addButton(_ text: String, action: Selector) {
         let button = UIButton(type: .system)
         button.setTitle(text, for: .normal); button.tintColor = tdMint
+        button.titleLabel?.font = tdFont(16)
         button.backgroundColor = UIColor.white.withAlphaComponent(0.07); button.layer.cornerRadius = 10
         button.heightAnchor.constraint(equalToConstant: 44).isActive = true
         button.addTarget(self, action: action, for: .touchUpInside); stack.addArrangedSubview(button)
@@ -267,7 +336,7 @@ final class TDSettingsController: UIViewController {
             if vinField.isFirstResponder { scroll.scrollRectToVisible(vinField.convert(vinField.bounds, to: scroll), animated: true) }
         }
     }
-    func updateStatus() { status.text = client.status }
+    func updateStatus() { status.text = client.status + "\n" + (dashboard?.positionLocked == true ? "位置已锁定（三连点可解锁）" : "位置未锁定（三连点可锁定）") }
     @objc private func connect() {
         view.endEditing(true)
         let vin = (vinField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
