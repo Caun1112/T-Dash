@@ -41,6 +41,7 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
     private let gear = UILabel()
     private let range = UILabel()
     private let separator = UIView()
+    private let outerRing = CAShapeLayer()
     private let innerRing = CAShapeLayer()
     private let statusArc = CAShapeLayer()
     private var timer: Timer?
@@ -57,8 +58,7 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
-        panel.layer.borderWidth = 0.5
-        panel.layer.borderColor = UIColor(white: 0.34, alpha: 0.65).cgColor
+        panel.layer.borderWidth = 0
         panel.layer.shadowColor = UIColor.black.cgColor
         panel.layer.shadowRadius = 8
         panel.layer.shadowOpacity = 0.30
@@ -93,11 +93,12 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
         range.textColor = UIColor(white: 0.65, alpha: 1)
         speedUnit.textColor = UIColor(white: 0.65, alpha: 1)
         separator.backgroundColor = UIColor(white: 0.4, alpha: 0.4)
-        for ring in [innerRing, statusArc] {
+        for ring in [outerRing, innerRing, statusArc] {
             ring.fillColor = UIColor.clear.cgColor
             ring.lineCap = .round
             panel.layer.addSublayer(ring)
         }
+        outerRing.strokeColor = UIColor(red: 0.29, green: 0.35, blue: 0.39, alpha: 0.65).cgColor
         innerRing.strokeColor = UIColor(red: 0.13, green: 0.18, blue: 0.20, alpha: 1).cgColor
         updateLockHint()
         panel.accessibilityCustomActions = [
@@ -159,7 +160,9 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
         gear.font = tdFont(20 * scale)
         gear.layer.cornerRadius = 8 * scale
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        innerRing.frame = panel.bounds; statusArc.frame = panel.bounds
+        outerRing.frame = panel.bounds; innerRing.frame = panel.bounds; statusArc.frame = panel.bounds
+        outerRing.lineWidth = 1.5 * scale
+        outerRing.path = UIBezierPath(ovalIn: panel.bounds.insetBy(dx: scale, dy: scale)).cgPath
         innerRing.lineWidth = 3 * scale; statusArc.lineWidth = 3 * scale
         innerRing.path = UIBezierPath(ovalIn: panel.bounds.insetBy(dx: 10 * scale, dy: 10 * scale)).cgPath
         statusArc.path = UIBezierPath(arcCenter: CGPoint(x: diameter / 2, y: diameter / 2),
