@@ -47,7 +47,7 @@ final class PreviewRenderer {
         func render(_ name: String, _ size: CGSize, _ controller: TDDashboardController) {
             // Rendering/font initialization can take >3 seconds on hosted runners.
             // Refresh only the test fixture; production stale-data handling is unchanged.
-            if client.isConnected { client.loadPreviewFixture(speedKph: client.telemetry.speedKph ?? 120) }
+            if client.isConnected { client.loadPreviewFixture(speedKph: client.telemetry.speedKph ?? 120, gear: client.telemetry.gear ?? "D") }
             let container = UIView(frame: CGRect(origin: .zero, size: size))
             let backdrop = PreviewMap(frame: container.bounds); container.addSubview(backdrop)
             controller.view.frame = container.bounds; container.addSubview(controller.view)
@@ -69,8 +69,8 @@ final class PreviewRenderer {
             let unit = controller.panel.subviews.first { $0.accessibilityIdentifier == "tdash.speedUnit" } as! UILabel
             precondition(number.font.fontName == "PingFangSC-Medium")
             precondition(unit.font.fontName == "PingFangSC-Medium")
-            let scale = controller.panel.bounds.width / 360
-            precondition(unit.frame.minX - number.frame.maxX >= 7.9 * scale)
+            let scale = controller.panel.bounds.width / 240
+            precondition(unit.frame.minY - number.frame.maxY >= 7.9 * scale)
             precondition(!number.frame.intersects(unit.frame))
             precondition(("km/h" as NSString).size(withAttributes: [.font: unit.font!]).width <= unit.bounds.width - scale)
             // Measure all possible displayed three-digit values, not just a mock screenshot.
@@ -92,7 +92,21 @@ final class PreviewRenderer {
             render("speed-\(value)", CGSize(width: 844, height: 390), dashboard)
             verifySpeedSpacing(dashboard)
         }
-        precondition(dashboard.panel.subviews.count == 6)
+        precondition(dashboard.panel.subviews.count == 5)
+        precondition(dashboard.panel.bounds.width == dashboard.panel.bounds.height)
+        precondition(!dashboard.panel.subviews.contains { $0 is UIImageView })
+        let range = dashboard.panel.subviews.first { $0.accessibilityIdentifier == "tdash.range" } as! UILabel
+        precondition(range.textAlignment == .center && abs(range.frame.midX - dashboard.panel.bounds.midX) < 0.01)
+        precondition(!dashboard.panel.point(inside: .zero, with: nil))
+        precondition(dashboard.panel.point(inside: CGPoint(x: dashboard.panel.bounds.midX, y: dashboard.panel.bounds.midY), with: nil))
+        client.loadPreviewFixture(speedKph: 4, gear: "R")
+        render("reverse", CGSize(width: 844, height: 390), dashboard)
+        let gear = dashboard.panel.subviews.first { $0.accessibilityIdentifier == "tdash.gear" } as! UILabel
+        precondition(gear.text == "R")
+        client.loadPreviewFixture(speedKph: 0, gear: "P")
+        render("parked", CGSize(width: 844, height: 390), dashboard)
+        precondition(gear.text == "P")
+        client.loadPreviewFixture(speedKph: 120)
         precondition(!dashboard.panel.subviews.contains { $0 is UIControl })
         let gestures = dashboard.panel.gestureRecognizers ?? []
         let pan = gestures.compactMap { $0 as? UIPanGestureRecognizer }.first!
@@ -115,7 +129,7 @@ final class PreviewRenderer {
         render("disconnected", CGSize(width: 844, height: 390), dashboard)
         let labels = dashboard.panel.subviews.compactMap { $0 as? UILabel }.filter { $0.accessibilityIdentifier != "tdash.speedUnit" }
         precondition(labels.allSatisfy { ($0.attributedText?.string ?? $0.text ?? "").contains("—") })
-        try! Data("PASS: native UIKit portrait/landscape, PingFangSC-Medium, 0...350 speed widths with spare room, separate unit gap, three-tap lock persistence/unlock, long-press access and disconnected readings\n".utf8)
+        try! Data("PASS: native UIKit portrait/landscape, PingFangSC-Medium, 0...350 speed widths with spare room, separate vertical unit gap, centered range without battery image, circular touch pass-through, R/P states, three-tap lock persistence/unlock, long-press access and disconnected readings\n".utf8)
             .write(to: folder.appendingPathComponent("preview-complete.txt"))
     }
 }

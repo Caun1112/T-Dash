@@ -9,20 +9,29 @@ private func tdFont(_ size: CGFloat) -> UIFont {
     UIFont(name: "PingFangSC-Medium", size: size) ?? .systemFont(ofSize: size, weight: .medium)
 }
 
+/// The transparent corners of the circular overlay remain interactive map space.
+final class TDDiscView: UIView {
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        let radius = min(bounds.width, bounds.height) / 2
+        let dx = point.x - bounds.midX, dy = point.y - bounds.midY
+        return radius > 0 && dx * dx + dy * dy <= radius * radius
+    }
+}
+
 final class TDOverlayWindow: UIWindow {
     weak var dashboard: TDDashboardController?
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let controller = dashboard else { return nil }
         if controller.presentedViewController != nil { return super.hitTest(point, with: event) }
         let local = controller.panel.convert(point, from: self)
-        guard controller.panel.bounds.contains(local) else { return nil }
+        guard controller.panel.point(inside: local, with: event) else { return nil }
         return super.hitTest(point, with: event)
     }
 }
 
 final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate {
     let client: TDTeslaClient
-    let panel = UIView()
+    let panel = TDDiscView()
     private let speed = UILabel()
     private let speedUnit = UILabel()
     private let lockFeedback = UILabel()
@@ -31,8 +40,9 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
     private(set) var positionLocked = tdPrefs.bool(forKey: "capsule.positionLocked")
     private let gear = UILabel()
     private let range = UILabel()
-    private let leftDivider = UIView()
-    private let rightDivider = UIView()
+    private let separator = UIView()
+    private let innerRing = CAShapeLayer()
+    private let statusArc = CAShapeLayer()
     private var timer: Timer?
     private var orientationKey = ""
     private var dragOrigin = CGPoint.zero
@@ -48,18 +58,18 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
         super.viewDidLoad()
         view.backgroundColor = .clear
         panel.layer.borderWidth = 0.5
-        panel.layer.borderColor = UIColor.white.withAlphaComponent(0.65).cgColor
+        panel.layer.borderColor = UIColor(white: 0.34, alpha: 0.65).cgColor
         panel.layer.shadowColor = UIColor.black.cgColor
         panel.layer.shadowRadius = 8
-        panel.layer.shadowOpacity = 0.16
+        panel.layer.shadowOpacity = 0.30
         panel.layer.shadowOffset = CGSize(width: 0, height: 3)
         view.addSubview(panel)
-        [speed, speedUnit, gear, range, leftDivider, rightDivider].forEach(panel.addSubview)
+        [speed, speedUnit, gear, range, separator].forEach(panel.addSubview)
         for label in [speed, speedUnit, gear, range] {
             label.textAlignment = .center
             label.adjustsFontSizeToFitWidth = true
             label.minimumScaleFactor = 0.6
-            label.textColor = UIColor(red: 0.025, green: 0.045, blue: 0.065, alpha: 1)
+            label.textColor = UIColor(white: 0.95, alpha: 1)
         }
         speed.accessibilityIdentifier = "tdash.speed"
         speedUnit.accessibilityIdentifier = "tdash.speedUnit"
@@ -67,8 +77,8 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
         speedUnit.isAccessibilityElement = false
         speed.adjustsFontSizeToFitWidth = false
         speedUnit.adjustsFontSizeToFitWidth = false
-        speed.textAlignment = .right
-        speedUnit.textAlignment = .left
+        speed.textAlignment = .center
+        speedUnit.textAlignment = .center
         lockFeedback.font = tdFont(13)
         lockFeedback.textAlignment = .center
         lockFeedback.textColor = .white
@@ -78,9 +88,17 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
         view.addSubview(lockFeedback)
         gear.backgroundColor = tdMint
         gear.clipsToBounds = true
-        for divider in [leftDivider, rightDivider] {
-            divider.backgroundColor = UIColor.black.withAlphaComponent(0.13)
+        range.accessibilityIdentifier = "tdash.range"
+        gear.accessibilityIdentifier = "tdash.gear"
+        range.textColor = UIColor(white: 0.65, alpha: 1)
+        speedUnit.textColor = UIColor(white: 0.65, alpha: 1)
+        separator.backgroundColor = UIColor(white: 0.4, alpha: 0.4)
+        for ring in [innerRing, statusArc] {
+            ring.fillColor = UIColor.clear.cgColor
+            ring.lineCap = .round
+            panel.layer.addSublayer(ring)
         }
+        innerRing.strokeColor = UIColor(red: 0.13, green: 0.18, blue: 0.20, alpha: 1).cgColor
         updateLockHint()
         panel.accessibilityCustomActions = [
             UIAccessibilityCustomAction(name: "打开仪表设置", target: self, selector: #selector(accessibilitySettings)),
@@ -108,41 +126,46 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
     private func layoutPanel() {
         guard isViewLoaded, view.bounds.width > 0 else { return }
         let safe = safeFrame
-        let width = min(landscape ? 360 : 320, safe.width)
-        let scale = width / 360
-        let size = CGSize(width: width, height: 68 * scale)
+        let diameter = min(156, min(safe.width, safe.height))
+        let scale = diameter / 240
+        let size = CGSize(width: diameter, height: diameter)
         let key = landscape ? "landscape" : "portrait"
         let changed = orientationKey != key || panel.bounds.size != size
         panel.bounds = CGRect(origin: .zero, size: size)
         if changed {
             orientationKey = key
-            let x = tdPrefs.object(forKey: "capsule.position.\(key).x") as? Double ?? 0.98
-            let y = tdPrefs.object(forKey: "capsule.position.\(key).y") as? Double ?? (landscape ? 0.02 : 0.22)
+            let x = tdPrefs.object(forKey: "round.position.\(key).x") as? Double ?? 0.98
+            let y = tdPrefs.object(forKey: "round.position.\(key).y") as? Double ?? (landscape ? 0.02 : 0.22)
             panel.frame.origin = CGPoint(x: safe.minX + CGFloat(x) * max(0, safe.width - size.width),
                                          y: safe.minY + CGFloat(y) * max(0, safe.height - size.height))
         }
         clampPanel()
-        let opacity = tdPrefs.object(forKey: "capsule.opacity") as? Double ?? 0.94
-        panel.backgroundColor = UIColor(red: 0.96, green: 0.975, blue: 1, alpha: CGFloat(max(0, min(1, opacity))))
-        panel.layer.cornerRadius = 30 * scale
+        let opacity = tdPrefs.object(forKey: "round.opacity") as? Double ?? 0.92
+        panel.backgroundColor = UIColor(red: 0.02, green: 0.03, blue: 0.04, alpha: CGFloat(max(0, min(1, opacity))))
+        panel.layer.cornerRadius = diameter / 2
+        panel.layer.shadowPath = UIBezierPath(ovalIn: panel.bounds).cgPath
         func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect {
             CGRect(x: x * scale, y: y * scale, width: w * scale, height: h * scale)
         }
-        // Separate fixed-width views reserve space for every three-digit speed.
-        // Align on a shared font baseline rather than squeezing number and unit together.
-        speed.font = tdFont(38 * scale)
+        // Independent vertical bands keep the largest three-digit speed clear of km/h.
+        range.frame = rect(45, 36, 150, 30)
+        range.font = tdFont(15 * scale)
+        separator.frame = rect(55, 72, 130, 0.8)
+        speed.font = tdFont(64 * scale)
+        speed.frame = rect(25, 76, 190, 90)
         speedUnit.font = tdFont(13 * scale)
-        let baseline = 46 * scale
-        speed.frame = CGRect(x: 14 * scale, y: baseline - speed.font.ascender,
-                             width: 86 * scale, height: speed.font.lineHeight)
-        speedUnit.frame = CGRect(x: 108 * scale, y: baseline - speedUnit.font.ascender,
-                                 width: 35 * scale, height: speedUnit.font.lineHeight)
-        leftDivider.frame = rect(152, 19, 1, 30)
-        gear.frame = rect(172, 14, 48, 40)
-        gear.font = tdFont(29 * scale)
-        gear.layer.cornerRadius = 15 * scale
-        rightDivider.frame = rect(240, 19, 1, 30)
-        range.frame = rect(250, 13, 98, 43)
+        speedUnit.frame = rect(55, 174, 130, 22)
+        gear.frame = rect(103, 202, 34, 26)
+        gear.font = tdFont(20 * scale)
+        gear.layer.cornerRadius = 8 * scale
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        innerRing.frame = panel.bounds; statusArc.frame = panel.bounds
+        innerRing.lineWidth = 3 * scale; statusArc.lineWidth = 3 * scale
+        innerRing.path = UIBezierPath(ovalIn: panel.bounds.insetBy(dx: 10 * scale, dy: 10 * scale)).cgPath
+        statusArc.path = UIBezierPath(arcCenter: CGPoint(x: diameter / 2, y: diameter / 2),
+                                     radius: diameter / 2 - 10 * scale,
+                                     startAngle: -1.95, endAngle: -1.19, clockwise: true).cgPath
+        CATransaction.commit()
         layoutLockFeedback()
         updateReadings(scale: scale)
     }
@@ -154,13 +177,6 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
     private func fresh(_ date: Date?, seconds: TimeInterval = 3) -> Bool {
         guard let date = date else { return false }
         return client.isConnected && (-1...seconds).contains(Date().timeIntervalSince(date))
-    }
-    private func reading(_ value: String, unit: String, font: CGFloat, scale: CGFloat) -> NSAttributedString {
-        let text = NSMutableAttributedString(string: value, attributes: [
-            .font: tdFont(font * scale)
-        ])
-        text.append(NSAttributedString(string: " " + unit, attributes: [.font: tdFont(14 * scale)]))
-        return text
     }
     private func updateReadings(scale: CGFloat) {
         let speedValue = fresh(client.speedUpdatedAt) ? client.telemetry.speedKph : nil
@@ -176,7 +192,18 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
         if let value = rangeValue, value.isFinite, (0...2000).contains(value) {
             rangeText = String(format: "%.0f", value)
         }
-        range.attributedText = reading(rangeText, unit: old ? "km*" : "km", font: 29, scale: scale)
+        range.text = rangeText + (old ? " km*" : " km")
+        let accent: UIColor
+        switch gear.text {
+        case "D": accent = tdMint
+        case "R": accent = UIColor(red: 1, green: 0.61, blue: 0.22, alpha: 1)
+        default: accent = UIColor(red: 0.57, green: 0.63, blue: 0.68, alpha: 1)
+        }
+        gear.textColor = accent
+        gear.backgroundColor = accent.withAlphaComponent(0.16)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        statusArc.strokeColor = accent.cgColor
+        CATransaction.commit()
         speed.accessibilityLabel = "车速 \(speedText) 公里每小时"
         gear.accessibilityLabel = "挡位 \(gear.text ?? "未知")"
         range.accessibilityLabel = "\(old ? "上次驻车" : "车辆")续航 \(rangeText) 公里"
@@ -197,8 +224,8 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
         clampPanel()
         if recognizer.state == .ended || recognizer.state == .cancelled {
             let safe = safeFrame
-            tdPrefs.set(Double((panel.frame.minX - safe.minX) / max(1, safe.width - panel.bounds.width)), forKey: "capsule.position.\(orientationKey).x")
-            tdPrefs.set(Double((panel.frame.minY - safe.minY) / max(1, safe.height - panel.bounds.height)), forKey: "capsule.position.\(orientationKey).y")
+            tdPrefs.set(Double((panel.frame.minX - safe.minX) / max(1, safe.width - panel.bounds.width)), forKey: "round.position.\(orientationKey).x")
+            tdPrefs.set(Double((panel.frame.minY - safe.minY) / max(1, safe.height - panel.bounds.height)), forKey: "round.position.\(orientationKey).y")
         }
     }
     private func updateLockHint() {
@@ -241,7 +268,7 @@ final class TDDashboardController: UIViewController, UIGestureRecognizerDelegate
     func closeSettings() {
         dismiss(animated: true) { [weak self] in self?.hostKeyWindow?.makeKey(); self?.refresh() }
     }
-    func setOpacity(_ value: Float) { tdPrefs.set(Double(value), forKey: "capsule.opacity"); layoutPanel() }
+    func setOpacity(_ value: Float) { tdPrefs.set(Double(value), forKey: "round.opacity"); layoutPanel() }
 }
 
 final class TDSettingsController: UIViewController {
@@ -296,12 +323,12 @@ final class TDSettingsController: UIViewController {
         addText("先连接，再添加钥匙；按车机提示用实体卡片确认。私钥仅存储于本机钥匙串。", size: 12, color: .lightGray)
         let slider = UISlider()
         slider.minimumValue = 0; slider.maximumValue = 1
-        slider.value = Float(tdPrefs.object(forKey: "capsule.opacity") as? Double ?? 0.94)
+        slider.value = Float(tdPrefs.object(forKey: "round.opacity") as? Double ?? 0.92)
         slider.tintColor = tdMint; slider.accessibilityLabel = "仪表底色不透明度"
         slider.addTarget(self, action: #selector(opacityChanged(_:)), for: .valueChanged)
         opacityLabel.font = tdFont(13); stack.addArrangedSubview(opacityLabel)
         stack.addArrangedSubview(slider); opacityChanged(slider)
-        addText("仪表只显示车速、挡位、车辆续航。背景可调透明度，黑色数字适合浅色底。\n车速与挡位超时 3 秒清空。续航来自车辆 battery_range，在停车时更新；超过 45 秒标 *，表示上次驻车读数，断连后清空。", size: 12, color: .lightGray)
+        addText("圆形仪表顶部居中显示续航，中央为车速，底部为挡位，无电池图标。深色底可调透明度，文字为苹方-简中黑体。\n车速与挡位超时 3 秒清空。续航来自车辆 battery_range，在停车时更新；超过 45 秒标 *，表示上次驻车读数，断连后清空。", size: 12, color: .lightGray)
         addButton("断开蓝牙", action: #selector(disconnect))
         addButton("完成", action: #selector(close))
         updateStatus()

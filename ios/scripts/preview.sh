@@ -30,7 +30,7 @@ xcrun simctl bootstatus "$DEVICE" -b
 # the real layout code, while avoiding hosted-runner MobileInstallation hangs.
 python3 - "$DEVICE" "$APP/TDashPreview" "$ROOT/ios/.build/previews" <<'PY'
 import subprocess, sys
-subprocess.run(['xcrun', 'simctl', 'spawn', sys.argv[1], sys.argv[2], sys.argv[3]], check=True, timeout=90)
+subprocess.run(['xcrun', 'simctl', 'spawn', sys.argv[1], sys.argv[2], sys.argv[3]], check=True, timeout=180)
 PY
 test -f "$ROOT/ios/.build/previews/preview-complete.txt"
 cat "$ROOT/ios/.build/previews/preview-complete.txt"

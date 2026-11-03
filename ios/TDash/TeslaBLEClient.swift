@@ -153,7 +153,7 @@ final class TDTeslaClient: NSObject {
 
 #if TDASH_PREVIEW
     /// Simulator-only visual fixture; this symbol and data are absent from release builds.
-    func loadPreviewFixture(speedKph: Double = 60) {
+    func loadPreviewFixture(speedKph: Double = 60, gear: String = "D") {
         clearTransport()
         previewFixtureLoaded = true
         wantedConnection = false
@@ -163,7 +163,7 @@ final class TDTeslaClient: NSObject {
         telemetry.speedKph = speedKph
         telemetry.rangeKm = 426
         telemetry.batteryPercent = 72
-        telemetry.gear = "D"
+        telemetry.gear = gear
         telemetry.powerKW = 18
         telemetry.odometerKm = 12486.2
         telemetry.receivedAt = now
